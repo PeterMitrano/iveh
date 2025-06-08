@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "beautifulsoup4>=4.13.4",
+    "pymongo>=4.13.0",
     "requests>=2.32.3",
     "rerun-sdk>=0.23.3",
     "tqdm>=4.67.1",

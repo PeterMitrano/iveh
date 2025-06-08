@@ -28,6 +28,8 @@ def get_urls_to_download(index_url: str):
     for row in rows:
         a = row.find("a")
         href = a['href']
+        if 'mixed-plus-moves.sgf' == href:
+            continue
         if '/' in str(href):
             yield from get_urls_to_download(index_url + href)
         else:
