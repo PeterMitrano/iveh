@@ -4,7 +4,7 @@ import re
 
 from tqdm import tqdm
 
-from notation import PlayerB, PlayerW
+from notation import PlayerB, PlayerW, PLAYERS
 
 
 def in_str(w: str, line: str):
@@ -12,7 +12,7 @@ def in_str(w: str, line: str):
     return w.lower() in line.lower()
 
 
-def is_black_drop(line):
+def is_drop(line):
     if in_str('Drop B', line):
         return True
     if in_str('dropb', line):
@@ -73,7 +73,6 @@ def skip_line(line):
         is_resign(line),
         is_draw(line),
         is_win_on_time(line),
-        is_pick(line),
         in_str('rack', line),
         in_str('done', line),
         in_str('reset', line),
@@ -84,13 +83,20 @@ def skip_line(line):
     ])
 
 
+def other_player(player):
+    return PlayerW if player == PlayerB else PlayerB
+
+
 def load_sgf(path: Path):
     with path.open("r", encoding='latin-1') as f:
         lines = [l.strip("\n") for l in f.readlines()]
 
     # Skip header/footer lines
+    player_id_to_player_color = [
+        None,
+        None
+    ]
     moves = []
-    last_player = None
     start_found = False
     for line in lines[:-5]:
         if "Start" in line:
@@ -99,19 +105,23 @@ def load_sgf(path: Path):
         if not start_found:
             continue
 
-        if is_black_drop(line):
+        if is_drop(line):
             if in_str('rack', line):
                 # This means the tile was placed back in the rack, so that's not really a move
                 continue
-            match = re.search(r'Dropb (\S+) \S+ \S+ (\S+?)]', line, flags=re.IGNORECASE)
+            match = re.search(r'dropb (\S+) \S+ \S+ (\S+?)]', line, flags=re.IGNORECASE)
             if not match:
                 raise ValueError(f"Failed to parse drop: {line}")
+            m = re.search(r'; P(\d)', line)
+            player_id = int(m.group(1))
+            player = player_id_to_player_color[player_id]
+            if player is None:
+                raise RuntimeError("Player is none!")
             moves.append({
-                'player': PlayerB,
-                'piece_moved': f'b{match.group(1)}',
+                'player': player,
+                'piece_moved': f'{player}{match.group(1)}',
                 'destination': remove_extra_slashes(match.group(2)),
             })
-            last_player = PlayerB
         elif in_str('Move W', line):
             match = re.search(r'Move W (\S+) \S+ \S+ (\S+?)]', line, flags=re.IGNORECASE)
             if not match:
@@ -121,7 +131,6 @@ def load_sgf(path: Path):
                 'piece_moved': f'w{match.group(1)}',
                 'destination': remove_extra_slashes(match.group(2)),
             })
-            last_player = PlayerW
         elif in_str('Move B', line):
             match = re.search(r'Move B (\S+) \S+ \S+ (\S+?)]', line, flags=re.IGNORECASE)
             if not match:
@@ -131,16 +140,33 @@ def load_sgf(path: Path):
                 'piece_moved': f'b{match.group(1)}',
                 'destination': remove_extra_slashes(match.group(2)),
             })
-            last_player = PlayerB
         elif is_pass(line):
-            if last_player is None:
-                raise ValueError(f"Who just passed? {last_player=}")
-            next_player = PlayerW if last_player == PlayerB else PlayerB
+            m = re.search(r'P(\d)', line)
+            player_id = int(m.group(1))
+            player = player_id_to_player_color[player_id]
+            if player is None:
+                raise RuntimeError("Player is none!")
             moves.append({
-                'player': next_player,
+                'player': player,
                 'piece_moved': None,
                 'destination': 'pass',
             })
+        elif is_pick(line):
+            m = re.search(r'P(\d)\[\d+ pick(\S*) (\S+) \S+ (\S+)', line, flags=re.IGNORECASE)
+            if m is None:
+                raise ValueError(f"Failed to parse line: {line}")
+            player_id = int(m.group(1))
+            if player_id_to_player_color[player_id] is None:
+                if m.group(2).lower() in PLAYERS:
+                    inferred_player_color = m.group(2).lower()
+                elif m.group(3).lower() in PLAYERS:
+                    inferred_player_color = m.group(3).lower()
+                elif m.group(4)[0].lower() in PLAYERS:
+                    inferred_player_color = m.group(4)[0].lower()
+                else:
+                    raise ValueError(f"Failed to parse line: {line}")
+                player_id_to_player_color[player_id] = inferred_player_color
+
         elif skip_line(line):
             continue
         elif line == ';' or is_time(line) or line == ')' or line == '(;':
@@ -189,11 +215,12 @@ def main():
     db = client.get_database('iveh')
     coll = db.get_collection('games')
 
-    # sgf_path = Path("./games/games-Oct-2-2008/HV-Dumbot-Loizz-2008-10-01-1716.sgf")
-    # moves = load_sgf(sgf_path)
-    # ret = coll.update_one({'sgf_path': str(sgf_path)},
-    #                 {'$set': {'moves': moves}})
-    # print(ret)
+    sgf_path = Path("games/games-Feb-23-2012/U!HV-guest-Dumbot-2012-02-22-1926.sgf")
+    moves = load_sgf(sgf_path)
+    ret = coll.update_one({'sgf_path': str(sgf_path)},
+                    {'$set': {'moves': moves}})
+    print(ret)
+    return
 
     for sgf_path in tqdm(list(get_sgf_paths())):
         # Check if the game is already in our DB
