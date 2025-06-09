@@ -128,7 +128,7 @@ def load_sgf(path: Path):
                 raise ValueError(f"Failed to parse move: {line}")
             moves.append({
                 'player': PlayerB,
-                'piece_moved': match.group(1),
+                'piece_moved': f'b{match.group(1)}',
                 'destination': remove_extra_slashes(match.group(2)),
             })
             last_player = PlayerB
@@ -189,11 +189,11 @@ def main():
     db = client.get_database('iveh')
     coll = db.get_collection('games')
 
-    sgf_path = Path("./games/games-Oct-2-2008/HV-Dumbot-Loizz-2008-10-01-1716.sgf")
-    moves = load_sgf(sgf_path)
-    ret = coll.update_one({'sgf_path': str(sgf_path)},
-                    {'$set': {'moves': moves}})
-    print(ret)
+    # sgf_path = Path("./games/games-Oct-2-2008/HV-Dumbot-Loizz-2008-10-01-1716.sgf")
+    # moves = load_sgf(sgf_path)
+    # ret = coll.update_one({'sgf_path': str(sgf_path)},
+    #                 {'$set': {'moves': moves}})
+    # print(ret)
 
     for sgf_path in tqdm(list(get_sgf_paths())):
         # Check if the game is already in our DB

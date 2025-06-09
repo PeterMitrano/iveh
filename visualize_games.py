@@ -115,12 +115,12 @@ def main():
     db = client.get_database('iveh')
     coll = db.get_collection('games')
 
-    paths = [
-        Path("./games/games-Oct-2-2008/HV-Dumbot-Loizz-2008-10-01-1716.sgf")
-    ]
-
-    for path in paths:
-        doc = coll.find_one({'sgf_path': str(path)})
+    # paths = [
+    #     Path("./games/games-Oct-2-2008/HV-Dumbot-Loizz-2008-10-01-1716.sgf")
+    # ]
+    # for path in paths:
+    #     doc = coll.find_one({'sgf_path': str(path)})
+    for doc in coll.find():
         moves = doc['moves']
         # moves = [
         #     {
