@@ -7,6 +7,10 @@ from tqdm import tqdm
 from notation import PlayerB, PlayerW, PLAYERS
 
 
+class InvalidGame(Exception):
+    pass
+
+
 def in_str(w: str, line: str):
     """ a case-insensitive 'in' """
     return w.lower() in line.lower()
@@ -105,40 +109,60 @@ def load_sgf(path: Path):
         if not start_found:
             continue
 
-        if is_drop(line):
+        if re.search(r'[wb]\?\d*]', line):
+            raise InvalidGame("contains Question Mark piece")
+        if match := re.search(r'dropb (\S+) (\S+) (\S+) (\S+?)]', line, flags=re.IGNORECASE):
             if in_str('rack', line):
                 # This means the tile was placed back in the rack, so that's not really a move
                 continue
-            match = re.search(r'dropb (\S+) \S+ \S+ (\S+?)]', line, flags=re.IGNORECASE)
-            if not match:
-                raise ValueError(f"Failed to parse drop: {line}")
-            m = re.search(r'; P(\d)', line)
-            player_id = int(m.group(1))
+            player_match = re.search(r'; *P(\d)', line)
+            player_id = int(player_match.group(1))
+            piece_moved = match.group(1)
             player = player_id_to_player_color[player_id]
+            if player != piece_moved[0]:
+                piece_moved = f'{player}{piece_moved}'
             if player is None:
                 raise RuntimeError("Player is none!")
+            destination = remove_extra_slashes(match.group(4))
+            row = match.group(2)
+            lat = int(match.group(3))
             moves.append({
                 'player': player,
-                'piece_moved': f'{player}{match.group(1)}',
-                'destination': remove_extra_slashes(match.group(2)),
+                'piece_moved': piece_moved,
+                'destination': destination,
+                'row': row,
+                'lat': lat,
             })
-        elif in_str('Move W', line):
-            match = re.search(r'Move W (\S+) \S+ \S+ (\S+?)]', line, flags=re.IGNORECASE)
-            if not match:
-                raise ValueError(f"Failed to parse move: {line}")
+        elif match := re.search(r'Move.*? W (\S+) (\S+) (\S+) (\S+?)]', line, flags=re.IGNORECASE):
+            piece_moved = match.group(1)
+            if piece_moved[0] != 'w':
+                piece_moved = f'w{piece_moved}'
+            destination = remove_extra_slashes(match.group(2))
+            row = match.group(2)
+            lat = int(match.group(3))
             moves.append({
                 'player': PlayerW,
-                'piece_moved': f'w{match.group(1)}',
-                'destination': remove_extra_slashes(match.group(2)),
+                'piece_moved': piece_moved,
+                'destination': destination,
+                'row': row,
+                'lat': lat,
             })
-        elif in_str('Move B', line):
-            match = re.search(r'Move B (\S+) \S+ \S+ (\S+?)]', line, flags=re.IGNORECASE)
-            if not match:
-                raise ValueError(f"Failed to parse move: {line}")
+        elif match := re.search(r'Move.*? B (\S+) (\S+) (\S+) (\S+?)]', line, flags=re.IGNORECASE):
+            piece_moved = match.group(1)
+            if piece_moved[0] != 'b':
+                piece_moved = f'b{piece_moved}'
+            # Destination coordinates are given as (row, lat)
+            # where row is a number high/top to low/bottom,
+            # and lat is a lettered diagonal
+            destination = remove_extra_slashes(match.group(4))
+            row = match.group(2)
+            lat = int(match.group(3))
             moves.append({
                 'player': PlayerB,
-                'piece_moved': f'b{match.group(1)}',
-                'destination': remove_extra_slashes(match.group(2)),
+                'piece_moved': piece_moved,
+                'destination': destination,
+                'row': row,
+                'lat': lat,
             })
         elif is_pass(line):
             m = re.search(r'P(\d)', line)
@@ -151,10 +175,9 @@ def load_sgf(path: Path):
                 'piece_moved': None,
                 'destination': 'pass',
             })
-        elif is_pick(line):
-            m = re.search(r'P(\d)\[\d+ pick(\S*) (\S+) \S+ (\S+)', line, flags=re.IGNORECASE)
-            if m is None:
-                raise ValueError(f"Failed to parse line: {line}")
+        elif m := re.search(r'P(\d)\[\d+ pick(\S*) (\S+) \S+ (\S+)', line, flags=re.IGNORECASE):
+            # Group 2 here in a line like '; P0[1 pick W 4 wS1] the 4 is which column from the players rack
+            # they are drawing from. so Queen is usually 0, then ant, grasshopper, etc...
             player_id = int(m.group(1))
             if player_id_to_player_color[player_id] is None:
                 if m.group(2).lower() in PLAYERS:
@@ -166,12 +189,13 @@ def load_sgf(path: Path):
                 else:
                     raise ValueError(f"Failed to parse line: {line}")
                 player_id_to_player_color[player_id] = inferred_player_color
+                player_id_to_player_color[1 - player_id] = other_player(inferred_player_color)
 
         elif skip_line(line):
             continue
         elif line == ';' or is_time(line) or line == ')' or line == '(;':
             # These games seem to be split into multiple parts maybe? for now I'll just ignore them
-            break
+            raise InvalidGame("Game contains multiple parts")
         else:
             raise ValueError(f"Could parse line {line}")
 
@@ -186,6 +210,7 @@ def get_sgf_paths(games_root=Path("games")):
             yield path
         else:
             print(f"Found {path.name} but it isn't .sgf so it will be ignored")
+
 
 def mark_as_start_missing(coll):
     paths_start_not_found = []
@@ -215,12 +240,12 @@ def main():
     db = client.get_database('iveh')
     coll = db.get_collection('games')
 
-    sgf_path = Path("games/games-Feb-23-2012/U!HV-guest-Dumbot-2012-02-22-1926.sgf")
-    moves = load_sgf(sgf_path)
-    ret = coll.update_one({'sgf_path': str(sgf_path)},
-                    {'$set': {'moves': moves}})
-    print(ret)
-    return
+    # sgf_path = Path('games/games-Jul-4-2015/U!HV-guest-Dumbot-2015-06-30-2305.sgf')
+    # moves = load_sgf(sgf_path)
+    # ret = coll.update_one({'sgf_path': str(sgf_path)},
+    #                 {'$set': {'moves': moves}})
+    # print(ret)
+    # return
 
     for sgf_path in tqdm(list(get_sgf_paths())):
         # Check if the game is already in our DB
@@ -230,10 +255,13 @@ def main():
         #         'sgf_path': str(sgf_path),
         #         'moves': moves,
         #     })
-        moves = load_sgf(sgf_path)
-        coll.update_one({'sgf_path': str(sgf_path)},
-                        {'$set': {'moves': moves}})
-
+        try:
+            moves = load_sgf(sgf_path)
+        except InvalidGame as e:
+            print(e)
+        else:
+            coll.update_one({'sgf_path': str(sgf_path)},
+                            {'$set': {'moves': moves}})
 
 
 if __name__ == "__main__":

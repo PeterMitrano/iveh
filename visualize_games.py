@@ -7,6 +7,7 @@ x = c and y = -r
 
 """
 import re
+import time
 from pathlib import Path
 from typing import Dict
 from uuid import uuid4
@@ -77,10 +78,6 @@ def log_tile(uvz, piece, color):
         pass
 
 
-def get_destination_coordinates(board_state, destination_str):
-    pass
-
-
 def _resolve_move_hec(ref_hec, dest_str):
     a, r, c, z = ref_hec
     if re.fullmatch(r'/.*', dest_str):
@@ -125,36 +122,21 @@ def main():
     coll = db.get_collection('games')
 
     paths = [
-        Path("games/games-Feb-23-2012/U!HV-guest-Dumbot-2012-02-22-1926.sgf"),
-        Path("games/games-Oct-2-2008/HV-Dumbot-Loizz-2008-10-01-1716.sgf")
+        Path('games/games-Jul-4-2015/HV-Dumbot-guest-2015-07-01-0829.sgf')
+        # Path("games/games-Feb-23-2012/U!HV-guest-Dumbot-2012-02-22-1926.sgf"),
+        # Path("games/games-Oct-2-2008/HV-Dumbot-Loizz-2008-10-01-1716.sgf"),
     ]
-    for path in paths:
-        doc = coll.find_one({'sgf_path': str(path)})
-        # for doc in coll.find():
+    # for path in paths:
+    #     doc = coll.find_one({'sgf_path': str(path)})
+    for doc in coll.find():
         moves = doc['moves']
-        # moves = [
-        #     {
-        #         'piece_moved': 'wG1',
-        #         'destination': None,
-        #         'player': PlayerW,
-        #     },
-        #     {
-        #         'piece_moved': 'bG1',
-        #         'destination': 'wG1-',
-        #         'player': PlayerB,
-        #     },
-        #     {
-        #         'piece_moved': 'wB1',
-        #         'destination': '/wG1',
-        #         'player': PlayerW,
-        #     }
-        # ]
 
         rr.RecordingStream('visualize_game', make_default=True, recording_id=uuid4())
         rr.connect_grpc()
 
+        rr.log("info", rr.TextDocument(f"{doc['_id']}\n{doc['sgf_path']}\n{doc['ladybug']} {doc['mosquito']} {doc['pillbug']}"), static=True)
         rr.log(f'axes_2d', rr.Arrows2D(origins=np.zeros((2, 2)), vectors=np.array([[1, 0], [0, 1]]),
-                                       colors=[(255, 0, 0), (0, 255, 0)]))
+                                       colors=[(255, 0, 0), (0, 255, 0)]), static=True)
 
         pieces_locs = {
             # Keys are unique tile IDs (e.g. wB1)
@@ -167,13 +149,16 @@ def main():
             if piece is None or move['destination'] == 'pass':  # This is a 'pass'
                 continue
 
-            if 'b' not in piece and 'w' not in piece:
-                piece = 'w' + piece
-
             if move_idx == 0:
                 dest_hec = (0, 0, 0, 0)
             else:
                 dest_str = move['destination']
+                if dest_str == '.' and move_idx > 1:
+                    row, lat = move['row'], move['lat']
+                    # I think (N, 13) is the center of the board, so we should be able to compute
+                    # the destination based off that
+                    raise NotImplementedError()
+
                 # find the piece we are reference and get its HECs
                 ref_piece = re.search(r'[wb][QAGBSLMP]\d*', dest_str).group()
                 ref_hec = pieces_locs[ref_piece]
@@ -183,10 +168,10 @@ def main():
             dest_uvz = hec_to_uvz(dest_hec)
 
             color = (255, 255, 255) if move['player'] == PlayerW else (20, 20, 20)
-            log_tile(dest_uvz, piece, color)
+            # log_tile(dest_uvz, piece, color)
             pieces_locs[piece] = dest_hec
 
-            # time.sleep(4.0)
+            # time.sleep(0.1)
 
 
 if __name__ == "__main__":
